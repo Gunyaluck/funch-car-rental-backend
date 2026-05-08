@@ -1,0 +1,360 @@
+// Car Rental System — Prisma Schema (v2)
+// Added: LocationHours, LocationSpecialHours, booking constraints
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum CarCategory {
+  SEDAN
+  SUV
+  VAN
+  TRUCK
+  SPORTS
+  LUXURY
+  ELECTRIC
+}
+
+enum CarStatus {
+  AVAILABLE
+  MAINTENANCE
+  RETIRED
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+enum PricingMode {
+  HOURLY
+  DAILY
+  MIXED
+}
+
+enum NotificationType {
+  BOOKING_RECEIVED
+  BOOKING_APPROVED
+  BOOKING_REJECTED
+  BOOKING_CANCELLED
+  BOOKING_COMPLETED
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum HolidaySource {
+  ADMIN       // admin เพิ่มเอง
+  NAGER_API   // auto-suggest จาก Nager.Date public holiday API
+}
+
+// ─────────────────────────────────────────
+// Users
+// ─────────────────────────────────────────
+
+model User {
+  id              String     @id @default(uuid())
+  email           String     @unique
+  passwordHash    String     @map("password_hash")
+  firstName       String     @map("first_name")
+  lastName        String     @map("last_name")
+  phone           String?
+  countryCode     String     @default("TH") @map("country_code")
+  timezone        String     @default("Asia/Bangkok")
+  currencyCode    String     @default("THB") @map("currency_code")
+  role            UserRole   @default(CUSTOMER)
+  status          UserStatus @default(ACTIVE)
+  emailVerifiedAt DateTime?  @map("email_verified_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  bookingsMade     Booking[]          @relation("BookingCustomer")
+  bookingsApproved Booking[]          @relation("BookingApprover")
+  notifications    Notification[]
+  statusLogs       BookingStatusLog[] @relation("StatusChanger")
+  refreshTokens    RefreshToken[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// Cars
+// ─────────────────────────────────────────
+
+model Car {
+  id           String      @id @default(uuid())
+  name         String
+  brand        String
+  model        String
+  year         Int
+  category     CarCategory
+  countryCode  String      @map("country_code")
+  city         String
+  timezone     String      // local timezone — ใช้คำนวณ operating hours + 14:00 cutoff
+  currencyCode String      @map("currency_code")
+  hourlyRate   Decimal     @map("hourly_rate") @db.Decimal(10, 2)
+  dailyRate    Decimal     @map("daily_rate") @db.Decimal(10, 2)
+  seats        Int
+  transmission String      // MANUAL | AUTOMATIC
+  fuelType     String      @map("fuel_type")
+  description  String?     @db.Text
+
+  // ── Operating hours constraints ──────────────────────────────────────────
+  is24Hours          Boolean @default(false) @map("is_24_hours")
+  // true → ข้าม LocationHours / LocationSpecialHours ทั้งหมด (รับ-คืนได้ตลอด 24 ชม.)
+
+  minAdvanceBookingHr Int @default(2) @map("min_advance_booking_hr")
+  // จองล่วงหน้าอย่างน้อยกี่ชั่วโมงก่อน pickup (ป้องกัน last-minute)
+
+  maxBookingDays Int @default(30) @map("max_booking_days")
+  // เช่าได้สูงสุดกี่วัน
+
+  bufferHours Int @default(2) @map("buffer_hours")
+  // เวลา buffer หลังคืนรถก่อนเปิดรับจองใหม่ (ทำความสะอาด / ตรวจสภาพ)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  status    CarStatus @default(AVAILABLE)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  images        CarImage[]
+  options       CarOption[]
+  bookings      Booking[]
+  locationHours LocationHours[]
+  specialHours  LocationSpecialHours[]
+
+  @@map("cars")
+}
+
+model CarImage {
+  id        String  @id @default(uuid())
+  carId     String  @map("car_id")
+  url       String
+  sortOrder Int     @default(0) @map("sort_order")
+  isCover   Boolean @default(false) @map("is_cover")
+
+  car Car @relation(fields: [carId], references: [id], onDelete: Cascade)
+
+  @@map("car_images")
+}
+
+model CarOption {
+  id          String  @id @default(uuid())
+  carId       String  @map("car_id")
+  name        String
+  pricePerDay Decimal @map("price_per_day") @db.Decimal(10, 2)
+  description String? @db.Text
+
+  car            Car             @relation(fields: [carId], references: [id], onDelete: Cascade)
+  bookingOptions BookingOption[]
+
+  @@map("car_options")
+}
+
+// ─────────────────────────────────────────
+// Operating Hours
+// ─────────────────────────────────────────
+
+// เวลาเปิด-ปิดปกติ รายวันในสัปดาห์
+// ใช้เป็น baseline — ถูก override โดย LocationSpecialHours ถ้ามี
+model LocationHours {
+  id        String  @id @default(uuid())
+  carId     String  @map("car_id")
+  dayOfWeek Int     // 0 = อาทิตย์, 1 = จันทร์, ..., 6 = เสาร์
+  openTime  String  // "08:00" — local time ตาม car.timezone
+  closeTime String  // "20:00" — local time ตาม car.timezone
+  isClosed  Boolean @default(false) // true = ปิดทั้งวัน
+
+  car Car @relation(fields: [carId], references: [id], onDelete: Cascade)
+
+  @@unique([carId, dayOfWeek]) // 1 รถ มีได้ 1 rule ต่อวัน
+  @@map("location_hours")
+}
+
+// วันหยุดพิเศษ — override LocationHours เสมอ
+// Priority: LocationSpecialHours > LocationHours > is24Hours
+model LocationSpecialHours {
+  id        String        @id @default(uuid())
+  carId     String        @map("car_id")
+  date      DateTime      @db.Date    // วันที่เฉพาะ เช่น 2025-04-13
+  isClosed  Boolean       @default(true)
+  openTime  String?       // ถ้า isClosed=false — เปิดเวลาพิเศษ เช่น "10:00"
+  closeTime String?       // เช่น "15:00"
+  note      String?       // "Songkran Festival", "New Year's Day"
+  source    HolidaySource @default(ADMIN)
+
+  car Car @relation(fields: [carId], references: [id], onDelete: Cascade)
+
+  @@unique([carId, date]) // 1 รถ มีได้ 1 rule ต่อวัน
+  @@map("location_special_hours")
+}
+
+// ─────────────────────────────────────────
+// Bookings
+// ─────────────────────────────────────────
+
+model Booking {
+  id             String        @id @default(uuid())
+  userId         String        @map("user_id")
+  carId          String        @map("car_id")
+
+  pickupAt       DateTime      @map("pickup_at")       // UTC
+  returnAt       DateTime      @map("return_at")       // UTC
+  pickupTimezone String        @map("pickup_timezone") // snapshot จาก car.timezone
+
+  totalHours   Decimal     @map("total_hours") @db.Decimal(10, 2)
+  totalDays    Int         @map("total_days")
+  subtotal     Decimal     @db.Decimal(10, 2)
+  optionsTotal Decimal     @map("options_total") @db.Decimal(10, 2)
+  grandTotal   Decimal     @map("grand_total") @db.Decimal(10, 2)
+  currencyCode String      @map("currency_code")
+  exchangeRate Decimal     @map("exchange_rate") @db.Decimal(10, 6)
+  pricingMode  PricingMode @map("pricing_mode")
+
+  status     BookingStatus @default(PENDING)
+  adminNote  String?       @map("admin_note") @db.Text
+  approvedBy String?       @map("approved_by")
+  approvedAt DateTime?     @map("approved_at")
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  user            User               @relation("BookingCustomer", fields: [userId], references: [id])
+  car             Car                @relation(fields: [carId], references: [id])
+  approver        User?              @relation("BookingApprover", fields: [approvedBy], references: [id])
+  options         BookingOption[]
+  statusLogs      BookingStatusLog[]
+  notifications   Notification[]
+  pricingSnapshot PricingSnapshot?
+
+  @@map("bookings")
+}
+
+model BookingOption {
+  id          String  @id @default(uuid())
+  bookingId   String  @map("booking_id")
+  carOptionId String  @map("car_option_id")
+  name        String  // snapshot ณ เวลาจอง
+  pricePerDay Decimal @map("price_per_day") @db.Decimal(10, 2)
+  totalPrice  Decimal @map("total_price") @db.Decimal(10, 2)
+
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  carOption CarOption @relation(fields: [carOptionId], references: [id])
+
+  @@map("booking_options")
+}
+
+// ─────────────────────────────────────────
+// Pricing Snapshot
+// ─────────────────────────────────────────
+
+model PricingSnapshot {
+  id              String   @id @default(uuid())
+  bookingId       String   @unique @map("booking_id")
+  hourlyRate      Decimal  @map("hourly_rate") @db.Decimal(10, 2)
+  dailyRate       Decimal  @map("daily_rate") @db.Decimal(10, 2)
+  currencyCode    String   @map("currency_code")
+  exchangeRate    Decimal  @map("exchange_rate") @db.Decimal(10, 6)
+  dailyCutoffHour Int      @default(14) @map("daily_cutoff_hour")
+  maxHoursPerDay  Int      @default(8) @map("max_hours_per_day")
+  calculationDetail Json   @map("calculation_detail")
+  // {
+  //   segments: [{ date, hours, mode, cost }],
+  //   subtotal, options: [{ name, days, cost }],
+  //   optionsTotal, grandTotal
+  // }
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("pricing_snapshots")
+}
+
+// ─────────────────────────────────────────
+// Booking Status Log
+// ─────────────────────────────────────────
+
+model BookingStatusLog {
+  id         String        @id @default(uuid())
+  bookingId  String        @map("booking_id")
+  changedBy  String        @map("changed_by")
+  fromStatus BookingStatus @map("from_status")
+  toStatus   BookingStatus @map("to_status")
+  note       String?       @db.Text
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  changer User    @relation("StatusChanger", fields: [changedBy], references: [id])
+
+  @@map("booking_status_logs")
+}
+
+// ─────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────
+
+model Notification {
+  id        String              @id @default(uuid())
+  userId    String              @map("user_id")
+  bookingId String?             @map("booking_id")
+  type      NotificationType
+  channel   NotificationChannel
+  subject   String
+  body      String              @db.Text
+  status    NotificationStatus  @default(PENDING)
+  sentAt    DateTime?           @map("sent_at")
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  user    User     @relation(fields: [userId], references: [id])
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────
+// Auth
+// ─────────────────────────────────────────
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  tokenHash  String   @unique @map("token_hash")
+  deviceInfo String?  @map("device_info")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
