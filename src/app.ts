@@ -18,6 +18,14 @@ app.use(
 
 app.use(express.json());
 
+app.get("/", (_req, res) => {
+  res.json({
+    status: "ok",
+    message: "Funch Car Rental API is online",
+    endpoints: ["/health", "/cars", "/users"],
+  });
+});
+
 app.get("/health", async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
