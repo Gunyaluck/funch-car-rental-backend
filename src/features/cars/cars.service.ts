@@ -1,4 +1,4 @@
-import { BookingStatus, CarCategory, CarStatus, Prisma } from "@prisma/client";
+import { BookingStatus, CarStatus, Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import type { ListCarsQuery } from "./cars.schemas.js";
 
@@ -112,12 +112,12 @@ const buildCarWhere = (query: ListCarsQuery): Prisma.CarWhereInput => {
   }
 
   if (query.category) {
-    where.category = query.category.toUpperCase() as CarCategory;
+    where.category = query.category;
   }
 
   if (query.transmission) {
     where.transmission = {
-      equals: query.transmission.toUpperCase(),
+      equals: query.transmission,
       mode: "insensitive",
     };
   }
@@ -147,27 +147,22 @@ const toNumber = (value: Prisma.Decimal) => Number(value);
 
 export const listCars = async (query: ListCarsQuery) => {
   const { page, limit, pickupAt, returnAt } = query;
-  const skip = (page - 1) * limit;
   const where = buildCarWhere(query);
+  const shouldFilterByAvailability = Boolean(pickupAt && returnAt);
 
-  const [cars, total] = await prisma.$transaction([
-    prisma.car.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      select: listCarSelect,
-    }),
-    prisma.car.count({ where }),
-  ]);
+  const cars = await prisma.car.findMany({
+    where,
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+    select: listCarSelect,
+  });
 
-  const data = cars.map((car) => {
+  const mappedCars = cars.map((car) => {
     const coverImage = car.images.find((image) => image.isCover)?.url ?? car.images[0]?.url ?? null;
+    const hasRequestedSchedule = shouldFilterByAvailability && pickupAt && returnAt;
     const isAvailable =
       car.status === CarStatus.AVAILABLE &&
-      (!pickupAt ||
-        !returnAt ||
-        !hasOverlapWithBuffer(car.bookings, pickupAt, returnAt, car.bufferHours ?? 0));
+      (!hasRequestedSchedule ||
+        !hasOverlapWithBuffer(car.bookings, pickupAt, returnAt, car.bufferHours));
 
     return {
       id: car.id,
@@ -190,6 +185,14 @@ export const listCars = async (query: ListCarsQuery) => {
       isAvailable,
     };
   });
+
+  const filteredCars = shouldFilterByAvailability
+    ? mappedCars.filter((car) => car.isAvailable)
+    : mappedCars;
+
+  const total = filteredCars.length;
+  const skip = (page - 1) * limit;
+  const data = filteredCars.slice(skip, skip + limit);
 
   return {
     data,
