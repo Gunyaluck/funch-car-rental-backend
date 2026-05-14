@@ -1,13 +1,16 @@
+import { CarCategory } from "@prisma/client";
 import { z } from "zod";
 
 const positiveInt = z.coerce.number().int().positive();
+const uppercasedString = z.string().trim().min(1).transform((value) => value.toUpperCase());
+const transmissionSchema = z.enum(["MANUAL", "AUTOMATIC"]);
 
 export const listCarsQuerySchema = z
   .object({
-    countryCode: z.string().trim().min(1).max(10).optional(),
+    countryCode: z.string().trim().min(2).max(10).transform((value) => value.toUpperCase()).optional(),
     city: z.string().trim().min(1).max(100).optional(),
-    category: z.string().trim().min(1).max(50).optional(),
-    transmission: z.string().trim().min(1).max(50).optional(),
+    category: uppercasedString.pipe(z.nativeEnum(CarCategory)).optional(),
+    transmission: uppercasedString.pipe(transmissionSchema).optional(),
     seats: positiveInt.optional(),
     pickupAt: z.coerce.date().optional(),
     returnAt: z.coerce.date().optional(),
