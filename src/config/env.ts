@@ -6,20 +6,23 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
   FRONTEND_URLS: z.string().optional(),
+  ALLOW_VERCEL_PREVIEW_ORIGINS: z.coerce.boolean().default(false),
   DATABASE_URL: z.string().min(1),
   JWT_SECRET: z.string().min(1).optional(),
   JWT_ACCESS_SECRET: z.string().min(1).optional(),
 });
 
 const parsedEnv = envSchema.parse(process.env);
+const normalizeOrigin = (url: string) => url.trim().replace(/\/+$/, "");
 const frontendUrls = parsedEnv.FRONTEND_URLS
   ? parsedEnv.FRONTEND_URLS.split(",")
-      .map((url) => url.trim())
+      .map(normalizeOrigin)
       .filter(Boolean)
-  : [parsedEnv.FRONTEND_URL];
+  : [normalizeOrigin(parsedEnv.FRONTEND_URL)];
 
 export const env = {
   ...parsedEnv,
+  FRONTEND_URL: normalizeOrigin(parsedEnv.FRONTEND_URL),
   FRONTEND_URLS: frontendUrls,
   JWT_ACCESS_SECRET: parsedEnv.JWT_ACCESS_SECRET ?? parsedEnv.JWT_SECRET,
 };
