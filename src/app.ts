@@ -6,6 +6,20 @@ import { notFoundHandler } from "./common/middleware/not-found.js";
 import { apiRouter } from "./routes/index.js";
 
 const app = express();
+const normalizeOrigin = (origin: string) => origin.replace(/\/+$/, "");
+
+const isAllowedVercelPreviewOrigin = (origin: string) => {
+  if (!env.ALLOW_VERCEL_PREVIEW_ORIGINS) {
+    return false;
+  }
+
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" && url.hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+};
 
 app.use((req, _res, next) => {
   console.log(`${req.method} ${req.url}`);
@@ -15,12 +29,22 @@ app.use((req, _res, next) => {
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || env.FRONTEND_URLS.includes(origin)) {
+      if (!origin) {
         callback(null, true);
         return;
       }
 
-      callback(new Error(`CORS blocked origin: ${origin}`));
+      const normalizedOrigin = normalizeOrigin(origin);
+
+      if (
+        env.FRONTEND_URLS.includes(normalizedOrigin) ||
+        isAllowedVercelPreviewOrigin(normalizedOrigin)
+      ) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked origin: ${normalizedOrigin}`));
     },
     credentials: true,
   }),
