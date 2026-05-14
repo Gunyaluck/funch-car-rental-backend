@@ -9,18 +9,26 @@ type RequestSchemas = {
 
 export const validateRequest =
   (schemas: RequestSchemas) =>
-  (req: Request, _res: Response, next: NextFunction) => {
+  (req: Request, res: Response, next: NextFunction) => {
+    const validated: {
+      body?: unknown;
+      query?: unknown;
+      params?: unknown;
+    } = {};
+
     if (schemas.body) {
-      req.body = schemas.body.parse(req.body);
+      validated.body = schemas.body.parse(req.body);
     }
 
     if (schemas.query) {
-      req.query = schemas.query.parse(req.query) as Request["query"];
+      validated.query = schemas.query.parse(req.query);
     }
 
     if (schemas.params) {
-      req.params = schemas.params.parse(req.params) as Request["params"];
+      validated.params = schemas.params.parse(req.params);
     }
+
+    res.locals.validated = validated;
 
     next();
   };

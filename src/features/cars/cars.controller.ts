@@ -4,13 +4,14 @@ import { ok } from "../../common/http/api-response.js";
 import type { CarIdParams, ListCarsQuery } from "./cars.schemas.js";
 import { getCarById, listCars } from "./cars.service.js";
 
-export const listCarsController = async (req: Request, res: Response) => {
-  const result = await listCars(req.query as unknown as ListCarsQuery);
+export const listCarsController = async (_req: Request, res: Response) => {
+  const query = res.locals.validated.query as ListCarsQuery;
+  const result = await listCars(query);
   res.json(ok(result.data, result.meta));
 };
 
-export const getCarByIdController = async (req: Request, res: Response) => {
-  const { id } = req.params as unknown as CarIdParams;
+export const getCarByIdController = async (_req: Request, res: Response) => {
+  const { id } = res.locals.validated.params as CarIdParams;
   const result = await getCarById(id);
 
   if (!result) {
