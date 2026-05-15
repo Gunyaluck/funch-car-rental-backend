@@ -10,6 +10,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   JWT_SECRET: z.string().min(1).optional(),
   JWT_ACCESS_SECRET: z.string().min(1).optional(),
+  JWT_REFRESH_SECRET: z.string().min(1).optional(),
+  JWT_ACCESS_EXPIRES_IN: z.string().min(1).default("15m"),
+  JWT_REFRESH_EXPIRES_IN: z.string().min(1).default("7d"),
 });
 
 const parsedEnv = envSchema.parse(process.env);
@@ -25,4 +28,5 @@ export const env = {
   FRONTEND_URL: normalizeOrigin(parsedEnv.FRONTEND_URL),
   FRONTEND_URLS: frontendUrls,
   JWT_ACCESS_SECRET: parsedEnv.JWT_ACCESS_SECRET ?? parsedEnv.JWT_SECRET,
+  JWT_REFRESH_SECRET: parsedEnv.JWT_REFRESH_SECRET ?? parsedEnv.JWT_SECRET,
 };
