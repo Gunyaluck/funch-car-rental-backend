@@ -4,6 +4,7 @@ import jwt, { type JwtPayload, type SignOptions } from "jsonwebtoken";
 import { UserStatus, type User } from "@prisma/client";
 import { env } from "../../config/env.js";
 import { AppError } from "../../common/errors/app-error.js";
+import { getCountryProfile, validateTimezone } from "../../common/country-profiles.js";
 import { prisma } from "../../lib/prisma.js";
 import type { LoginBody, RefreshBody, RegisterBody } from "./auth.schemas.js";
 
@@ -174,6 +175,8 @@ export const register = async (body: RegisterBody) => {
   }
 
   const passwordHash = await bcrypt.hash(body.password, 12);
+  const countryProfile = getCountryProfile(body.countryCode);
+  const timezone = body.timezone ? validateTimezone(body.timezone) : countryProfile.timezone;
   const user = await prisma.user.create({
     data: {
       email: body.email,
@@ -181,9 +184,9 @@ export const register = async (body: RegisterBody) => {
       firstName: body.firstName,
       lastName: body.lastName,
       phone: body.phone ?? null,
-      countryCode: body.countryCode,
-      timezone: body.timezone,
-      currencyCode: body.currencyCode,
+      countryCode: countryProfile.countryCode,
+      timezone,
+      currencyCode: countryProfile.currencyCode,
     },
     select: userSelect,
   });

@@ -11,8 +11,7 @@ export const registerBodySchema = z.object({
   lastName: z.string().trim().min(1),
   phone: optionalTextSchema,
   countryCode: z.string().trim().length(2).toUpperCase().default("TH"),
-  timezone: z.string().trim().min(1).default("Asia/Bangkok"),
-  currencyCode: z.string().trim().length(3).toUpperCase().default("THB"),
+  timezone: optionalTextSchema,
   deviceInfo: optionalTextSchema,
 });
 
