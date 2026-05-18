@@ -23,13 +23,13 @@ const readAuthContext = (req: Request): AuthContext | null => {
     return null;
   }
 
-  const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as JwtPayload;
-  const userId = typeof payload.sub === "string" ? payload.sub : null;
-  const role = typeof payload.role === "string" ? payload.role : null;
+    const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as JwtPayload;
+    const userId = typeof payload.sub === "string" ? payload.sub : null;
+    const role = typeof payload.role === "string" ? payload.role : null;
 
-  if (!userId || !role) {
-    throw new AppError(401, "Invalid access token");
-  }
+    if (!userId || !role || payload.type !== "access") {
+      throw new AppError(401, "Invalid access token");
+    }
 
   return { userId, role };
 };
@@ -45,7 +45,12 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
     res.locals.auth = auth;
     next();
   } catch (error) {
-    next(error);
+    if (error instanceof AppError) {
+      next(error);
+      return;
+    }
+
+    next(new AppError(401, "Invalid access token"));
   }
 };
 
